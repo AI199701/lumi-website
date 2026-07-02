@@ -105,11 +105,16 @@
           <p data-i18n="worldBody">写下一句今天想对自己说的话。它会成为 LUMI 世界里新亮起的一颗星。</p>
           <form class="wish-form">
             <label for="wish" data-i18n="wishLabel">给今天留句话</label>
-            <div><input id="wish" maxlength="36" placeholder="比如：慢一点，也没关系" data-i18n-placeholder="wishPlaceholder"><button type="submit" data-i18n="wishButton">点亮</button></div>
-            <small><b>0</b> / 36</small>
+            <div><textarea id="wish" maxlength="520" rows="3" placeholder="比如：慢一点，也没关系" data-i18n-placeholder="wishPlaceholder"></textarea><button type="submit" data-i18n="wishButton">点亮</button></div>
+            <small><b>0</b> / 520</small>
           </form>
         </div>
         <div class="wishes" aria-live="polite"></div>
+        <aside class="wish-archive" aria-label="留言记忆库">
+          <header><div><span>MESSAGE MEMORY</span><h3>留言星河</h3></div><button class="export-wishes" type="button">备份留言</button></header>
+          <p class="storage-status"><i></i><span>已在此设备持久保存</span></p>
+          <div class="wish-archive-list" id="wishArchiveList"></div>
+        </aside>
         <p class="scene-number" aria-hidden="true">04</p>
       </section>
 
@@ -121,6 +126,10 @@
           <h2 data-i18n="aboutTitle" data-i18n-html>从一张草图，<br>到你身边。</h2>
           <p data-i18n="aboutBody">LUMI 是一个关于陪伴、好奇与温柔勇气的原创角色计划。希望它像一盏不刺眼的小灯，在普通日子里陪你走一段。</p>
           <a class="text-link" href="#home"><b data-i18n="backForest">回到森林</b> <span>↑</span></a>
+        </div>
+        <div class="finale-lumi-wrap">
+          <div class="lumi-3d finale-lumi-3d" data-lumi-mode="finale" aria-label="可互动的 3D LUMI 角色"></div>
+          <p>移动鼠标与它对视 · 点击角色触发动作</p>
         </div>
         <footer><span>© 2026 LUMI STUDIO</span><span>MADE WITH A LITTLE COURAGE</span></footer>
         <p class="scene-number" aria-hidden="true">05</p>
@@ -142,9 +151,17 @@
         <img class="memory-image" src="assets/lumi-forest.png" alt="LUMI 的动态回忆">
         <div class="memory-wash"></div>
         <div class="memory-fireflies" aria-hidden="true"></div>
+        <div class="lumi-3d memory-lumi-3d" data-lumi-mode="memory" aria-label="可互动的 3D LUMI 角色"></div>
         <button class="lumi-hotspot" type="button" aria-label="摸摸 LUMI">
           <span data-i18n="petLumi">摸摸 LUMI</span><i>♡</i>
         </button>
+        <div class="action-dock" aria-label="3D 角色动作">
+          <button type="button" data-lumi-action="bounce" data-unlock="0"><span>跳跳</span><small>0</small></button>
+          <button type="button" data-lumi-action="wave" data-unlock="20"><span>挥手</span><small>20</small></button>
+          <button type="button" data-lumi-action="spin" data-unlock="40"><span>转圈</span><small>40</small></button>
+          <button type="button" data-lumi-action="dance" data-unlock="60"><span>跳舞</span><small>60</small></button>
+          <button type="button" data-lumi-action="heart" data-unlock="80"><span>比心</span><small>80</small></button>
+        </div>
         <div class="memory-particles" aria-hidden="true"></div>
         <div class="memory-story">
           <p>MEMORY · <b class="memory-index">01</b></p>
@@ -152,6 +169,7 @@
           <span data-i18n="memoryPlayHint">移动鼠标看看它，点击 LUMI 和它玩</span>
         </div>
         <div class="affection"><span data-i18n="affection">亲密度</span><i><b></b></i><strong>0</strong></div>
+        <div class="habit-note"><i></i><span>正在学习你的互动习惯</span></div>
       </div>
     </dialog>
 
@@ -175,6 +193,8 @@
     <div class="music-status" aria-live="polite"><i><b></b><b></b><b></b><b></b></i><span data-i18n="musicPlaying">LUMI 轻音乐正在播放</span></div>
 
     <div class="toast" role="status" aria-live="polite">一颗新星已经亮起 ✦</div>
+    <script src="assets/cloud-config.js"></script>
     <script src="assets/app.js"></script>
+    <script type="module" src="assets/lumi-3d.js"></script>
   </body>
 </html>
