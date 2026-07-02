@@ -253,6 +253,7 @@ qs(".language").addEventListener("click", () => languageDialog.showModal());
 qs(".language-close").addEventListener("click", () => languageDialog.close());
 qsa("[data-lang]").forEach((button) => button.addEventListener("click", () => {
   applyLanguage(button.dataset.lang);
+  if (typeof renderWishArchive === "function") renderWishArchive();
   languageDialog.close();
 }));
 languageDialog.addEventListener("click", (event) => { if (event.target === languageDialog) languageDialog.close(); });
@@ -274,7 +275,44 @@ const memoryTitle = qs(".memory-dynamic-title");
 const memoryIndex = qs(".memory-index");
 const affectionValue = qs(".affection strong");
 const affectionBar = qs(".affection i b");
-let affection = 0;
+let affection = Math.min(100, Number(localStorage.getItem("lumi-affection") || 0));
+const habits = JSON.parse(localStorage.getItem("lumi-interaction-habits") || "{}");
+habits.visits = Number(habits.visits || 0) + 1;
+habits.actions ||= {};
+habits.lastVisit = new Date().toISOString();
+
+function persistHabits() {
+  localStorage.setItem("lumi-interaction-habits", JSON.stringify(habits));
+}
+
+function recordHabit(action) {
+  habits.actions[action] = Number(habits.actions[action] || 0) + 1;
+  habits.preferredAction = Object.entries(habits.actions).sort((a, b) => b[1] - a[1])[0]?.[0] || "idle";
+  const actionNames = { pet: "被轻轻抚摸", bounce: "开心跳跳", wave: "挥手回应", spin: "转圈", dance: "跳舞", heart: "比心", "character-tap": "主动靠近" };
+  const habitText = qs(".habit-note span");
+  if (habitText && actionNames[habits.preferredAction]) habitText.textContent = `LUMI 正在学会：${actionNames[habits.preferredAction]}`;
+  persistHabits();
+}
+
+function updateUnlocks() {
+  qsa("[data-lumi-action]").forEach((button) => {
+    const unlocked = affection >= Number(button.dataset.unlock || 0);
+    button.disabled = !unlocked;
+    button.classList.toggle("unlocked", unlocked);
+  });
+  affectionValue.textContent = String(affection);
+  affectionBar.style.width = `${affection}%`;
+}
+
+function setAffection(nextValue, source = "interaction") {
+  affection = Math.min(100, Math.max(0, nextValue));
+  localStorage.setItem("lumi-affection", String(affection));
+  recordHabit(source);
+  updateUnlocks();
+  window.dispatchEvent(new CustomEvent("lumi:affection", { detail: { value: affection, source, habits } }));
+}
+persistHabits();
+updateUnlocks();
 
 function createFireflies() {
   const layer = qs(".memory-fireflies");
@@ -301,13 +339,13 @@ function openMemory(photo) {
   memoryTitle.textContent = qs("figcaption", photo).textContent;
   memoryIndex.textContent = String(index + 1).padStart(2, "0");
   memoryDialog.classList.toggle("studio-memory", studio);
-  affection = 0;
-  affectionValue.textContent = "0";
-  affectionBar.style.width = "0%";
   memoryStage.style.setProperty("--mx", "0px");
   memoryStage.style.setProperty("--my", "0px");
   createFireflies();
+  recordHabit(`memory-${index + 1}`);
+  updateUnlocks();
   memoryDialog.showModal();
+  window.dispatchEvent(new CustomEvent("lumi:memory-open", { detail: { index, studio, affection, habits } }));
 }
 
 photos.forEach((photo) => {
@@ -333,24 +371,45 @@ memoryStage.addEventListener("pointerleave", () => {
   memoryStage.style.setProperty("--my", "0px");
 });
 
-qs(".lumi-hotspot").addEventListener("click", (event) => {
-  event.stopPropagation();
-  affection = Math.min(100, affection + 12);
-  affectionValue.textContent = String(affection);
-  affectionBar.style.width = `${affection}%`;
+function spawnInteractionHearts(clientX, clientY) {
   const rect = memoryStage.getBoundingClientRect();
+  const originX = Number.isFinite(clientX) ? clientX - rect.left : rect.width * 0.72;
+  const originY = Number.isFinite(clientY) ? clientY - rect.top : rect.height * 0.52;
   for (let index = 0; index < 7; index += 1) {
     const heart = document.createElement("span");
     heart.className = "heart-particle";
     heart.textContent = index % 3 === 0 ? "✦" : "♥";
-    heart.style.left = `${event.clientX - rect.left - 8 + (Math.random() - 0.5) * 42}px`;
-    heart.style.top = `${event.clientY - rect.top - 8 + (Math.random() - 0.5) * 28}px`;
+    heart.style.left = `${originX - 8 + (Math.random() - 0.5) * 42}px`;
+    heart.style.top = `${originY - 8 + (Math.random() - 0.5) * 28}px`;
     heart.style.setProperty("--dx", `${(Math.random() - 0.5) * 100}px`);
     heart.style.setProperty("--spin", `${(Math.random() - 0.5) * 120}deg`);
     qs(".memory-particles").append(heart);
     heart.addEventListener("animationend", () => heart.remove());
   }
-  qs(".lumi-hotspot").animate([{ transform: "translate(-50%,-50%) scale(1)" }, { transform: "translate(-50%,-50%) scale(.9)" }, { transform: "translate(-50%,-50%) scale(1.08)" }], { duration: 420, easing: "ease-out" });
+}
+
+function rewardCharacterInteraction(source, clientX, clientY) {
+  setAffection(affection + 8, source);
+  spawnInteractionHearts(clientX, clientY);
+}
+
+qs(".lumi-hotspot").addEventListener("click", (event) => {
+  event.stopPropagation();
+  rewardCharacterInteraction("pet", event.clientX, event.clientY);
+  qs(".lumi-hotspot").animate([{ transform: "scale(1)" }, { transform: "scale(.92)" }, { transform: "scale(1.06)" }], { duration: 420, easing: "ease-out" });
+});
+
+window.addEventListener("lumi:character-tap", (event) => {
+  rewardCharacterInteraction(event.detail?.action || "character-tap", event.detail?.clientX, event.detail?.clientY);
+});
+
+qsa("[data-lumi-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.disabled) return;
+    const action = button.dataset.lumiAction;
+    recordHabit(action);
+    window.dispatchEvent(new CustomEvent("lumi:action-request", { detail: { action, affection, habits } }));
+  });
 });
 
 qs(".shuffle-button").addEventListener("click", () => {
@@ -367,33 +426,172 @@ qs(".shuffle-button").addEventListener("click", () => {
   });
 });
 
-// Wish stars
+// Timestamped message memory: IndexedDB + localStorage backup, with an optional
+// Supabase adapter in cloud-config.js for shared cross-device persistence.
 const wishForm = qs(".wish-form");
 const wishInput = qs("#wish");
 const counter = qs(".wish-form small b");
 const wishes = qs(".wishes");
+const wishArchiveList = qs("#wishArchiveList");
+const storageStatus = qs(".storage-status");
 const toast = qs(".toast");
-const seedWishes = [["今天也已经很努力了", 12, 22], ["不着急，花会慢慢开", 76, 26], ["记得看看晚霞", 18, 72], ["愿你做个好梦", 80, 76]];
-function addWish(text, left, top) {
-  const star = document.createElement("span");
-  star.className = "wish-star";
-  star.textContent = text;
-  star.style.left = `${left}%`;
-  star.style.top = `${top}%`;
-  wishes.append(star);
+const cloudConfig = window.LUMI_CLOUD_CONFIG;
+const cloudEnabled = Boolean(cloudConfig?.url && cloudConfig?.anonKey);
+const WISH_BACKUP_KEY = "lumi-wishes-backup-v2";
+let wishRecords = [];
+
+function openWishDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("lumi-memory", 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains("wishes")) database.createObjectStore("wishes", { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
-seedWishes.forEach(([text, left, top]) => addWish(text, left, top));
+
+async function readLocalWishes() {
+  try {
+    const database = await openWishDatabase();
+    return await new Promise((resolve, reject) => {
+      const request = database.transaction("wishes", "readonly").objectStore("wishes").getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return JSON.parse(localStorage.getItem(WISH_BACKUP_KEY) || "[]");
+  }
+}
+
+async function saveWishLocally(wish) {
+  const backup = JSON.parse(localStorage.getItem(WISH_BACKUP_KEY) || "[]");
+  if (!backup.some((item) => item.id === wish.id)) backup.push(wish);
+  localStorage.setItem(WISH_BACKUP_KEY, JSON.stringify(backup));
+  try {
+    const database = await openWishDatabase();
+    await new Promise((resolve, reject) => {
+      const request = database.transaction("wishes", "readwrite").objectStore("wishes").put(wish);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.warn("IndexedDB unavailable; local backup remains active.", error);
+  }
+}
+
+function cloudHeaders() {
+  return { apikey: cloudConfig.anonKey, Authorization: `Bearer ${cloudConfig.anonKey}`, "Content-Type": "application/json" };
+}
+
+async function readCloudWishes() {
+  const response = await fetch(`${cloudConfig.url}/rest/v1/wishes?select=id,text,created_at&order=created_at.desc`, { headers: cloudHeaders() });
+  if (!response.ok) throw new Error(`Cloud read failed: ${response.status}`);
+  return (await response.json()).map((item) => ({ id: item.id, text: item.text, createdAt: item.created_at }));
+}
+
+async function saveWishToCloud(wish) {
+  const response = await fetch(`${cloudConfig.url}/rest/v1/wishes`, {
+    method: "POST",
+    headers: { ...cloudHeaders(), Prefer: "return=minimal" },
+    body: JSON.stringify({ id: wish.id, text: wish.text, created_at: wish.createdAt })
+  });
+  if (!response.ok) throw new Error(`Cloud write failed: ${response.status}`);
+}
+
+function formatWishTime(value) {
+  return new Intl.DateTimeFormat(currentLanguage, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function renderWishArchive() {
+  wishArchiveList.replaceChildren();
+  [...wishRecords].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach((wish) => {
+    const item = document.createElement("article");
+    item.className = "wish-memory-item";
+    const text = document.createElement("p");
+    text.textContent = wish.text;
+    text.title = wish.text;
+    const time = document.createElement("time");
+    time.dateTime = wish.createdAt;
+    time.textContent = formatWishTime(wish.createdAt);
+    item.append(text, time);
+    wishArchiveList.append(item);
+  });
+
+  wishes.replaceChildren();
+  const positions = [[12, 22], [77, 25], [17, 73], [80, 75]];
+  wishRecords.slice(-4).forEach((wish, index) => {
+    const star = document.createElement("span");
+    star.className = "wish-star";
+    star.textContent = wish.text.length > 42 ? `${wish.text.slice(0, 42)}…` : wish.text;
+    star.style.left = `${positions[index][0]}%`;
+    star.style.top = `${positions[index][1]}%`;
+    wishes.append(star);
+  });
+}
+
+async function loadWishMemory() {
+  try {
+    if (cloudEnabled) {
+      wishRecords = await readCloudWishes();
+      storageStatus.classList.add("cloud");
+      qs("span", storageStatus).textContent = "已同步到永久云端记忆";
+      await Promise.all(wishRecords.map(saveWishLocally));
+    } else {
+      wishRecords = await readLocalWishes();
+    }
+  } catch (error) {
+    console.warn("Cloud storage unavailable; using local durable storage.", error);
+    wishRecords = await readLocalWishes();
+    qs("span", storageStatus).textContent = "云端暂不可用，已在此设备保存";
+  }
+
+  if (!wishRecords.length) {
+    const now = Date.now();
+    wishRecords = [
+      { id: "welcome-1", text: "今天也已经很努力了", createdAt: new Date(now - 86400000).toISOString() },
+      { id: "welcome-2", text: "不着急，花会慢慢开", createdAt: new Date(now - 43200000).toISOString() },
+      { id: "welcome-3", text: "记得看看晚霞", createdAt: new Date(now - 7200000).toISOString() }
+    ];
+    await Promise.all(wishRecords.map(saveWishLocally));
+  }
+  renderWishArchive();
+}
+
 wishInput.addEventListener("input", () => { counter.textContent = wishInput.value.length; });
-wishForm.addEventListener("submit", (event) => {
+wishForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const text = wishInput.value.trim();
+  const text = wishInput.value.trim().slice(0, 520);
   if (!text) return wishInput.focus();
-  addWish(text, 20 + Math.random() * 60, 18 + Math.random() * 64);
+  const wish = { id: crypto.randomUUID?.() || `wish-${Date.now()}`, text, createdAt: new Date().toISOString() };
+  wishRecords.push(wish);
+  await saveWishLocally(wish);
+  if (cloudEnabled) {
+    try { await saveWishToCloud(wish); }
+    catch (error) {
+      console.warn("Cloud write failed; message remains safely stored on this device.", error);
+      storageStatus.classList.remove("cloud");
+      qs("span", storageStatus).textContent = "云端暂不可用，已在此设备保存";
+    }
+  }
+  renderWishArchive();
   wishInput.value = "";
   counter.textContent = "0";
   toast.classList.add("show");
   setTimeout(() => toast.classList.remove("show"), 2200);
 });
+
+qs(".export-wishes").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(wishRecords, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `lumi-message-memory-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+});
+loadWishMemory();
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && mobileMenu.classList.contains("open")) setMenu(false);
