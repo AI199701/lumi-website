@@ -1,5 +1,29 @@
 const qs = (selector, scope = document) => scope.querySelector(selector);
 const qsa = (selector, scope = document) => [...scope.querySelectorAll(selector)];
+const cloudConfig = window.LUMI_CLOUD_CONFIG;
+const cloudEnabled = Boolean(cloudConfig?.url && cloudConfig?.anonKey);
+const VISITOR_ID_KEY = "lumi-visitor-id-v1";
+const visitorId = localStorage.getItem(VISITOR_ID_KEY) || crypto.randomUUID?.() || `visitor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+localStorage.setItem(VISITOR_ID_KEY, visitorId);
+
+function cloudHeaders() {
+  return { apikey: cloudConfig.anonKey, Authorization: `Bearer ${cloudConfig.anonKey}`, "Content-Type": "application/json" };
+}
+
+async function saveBehaviorToCloud(action, affectionValue, habitSnapshot) {
+  if (!cloudEnabled) return;
+  try {
+    const response = await fetch(`${cloudConfig.url}/rest/v1/visitor_events`, {
+      method: "POST",
+      headers: { ...cloudHeaders(), Prefer: "return=minimal" },
+      keepalive: true,
+      body: JSON.stringify({ visitor_id: visitorId, action, affection: affectionValue, habits: habitSnapshot })
+    });
+    if (!response.ok) throw new Error(`Behavior write failed: ${response.status}`);
+  } catch (error) {
+    console.warn("Cloud behavior memory is temporarily unavailable; local learning remains active.", error);
+  }
+}
 
 const translations = {
   "zh-CN": {
@@ -292,6 +316,7 @@ function recordHabit(action) {
   const habitText = qs(".habit-note span");
   if (habitText && actionNames[habits.preferredAction]) habitText.textContent = `LUMI 正在学会：${actionNames[habits.preferredAction]}`;
   persistHabits();
+  saveBehaviorToCloud(action, affection, habits);
 }
 
 function updateUnlocks() {
@@ -312,6 +337,7 @@ function setAffection(nextValue, source = "interaction") {
   window.dispatchEvent(new CustomEvent("lumi:affection", { detail: { value: affection, source, habits } }));
 }
 persistHabits();
+saveBehaviorToCloud("visit", affection, habits);
 updateUnlocks();
 
 function createFireflies() {
@@ -435,8 +461,6 @@ const wishes = qs(".wishes");
 const wishArchiveList = qs("#wishArchiveList");
 const storageStatus = qs(".storage-status");
 const toast = qs(".toast");
-const cloudConfig = window.LUMI_CLOUD_CONFIG;
-const cloudEnabled = Boolean(cloudConfig?.url && cloudConfig?.anonKey);
 const WISH_BACKUP_KEY = "lumi-wishes-backup-v2";
 let wishRecords = [];
 
@@ -479,10 +503,6 @@ async function saveWishLocally(wish) {
   } catch (error) {
     console.warn("IndexedDB unavailable; local backup remains active.", error);
   }
-}
-
-function cloudHeaders() {
-  return { apikey: cloudConfig.anonKey, Authorization: `Bearer ${cloudConfig.anonKey}`, "Content-Type": "application/json" };
 }
 
 async function readCloudWishes() {

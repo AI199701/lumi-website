@@ -1,4 +1,5 @@
-import * as THREE from "./vendor/three.module.min.js";
+import * as THREE from "three";
+import { GLTFLoader } from "./vendor/GLTFLoader.js";
 
 const ACTION_UNLOCKS = { bounce: 0, wave: 20, spin: 40, dance: 60, heart: 80 };
 const ACTION_DURATIONS = { bounce: 1.35, wave: 1.9, spin: 1.55, dance: 3.1, heart: 2.8, bow: 1.7 };
@@ -41,6 +42,8 @@ class LumiCharacter {
     try {
       this.setupScene();
       this.createCharacter();
+      this.captureRestPose();
+      this.loadBlenderCharacter();
       this.bindInteractions();
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(container);
@@ -191,6 +194,56 @@ class LumiCharacter {
     this.scene.add(shadow);
   }
 
+  loadBlenderCharacter() {
+    const loader = new GLTFLoader();
+    loader.load("./assets/lumi-character.glb", (gltf) => {
+      const model = gltf.scene.getObjectByName("Character") || gltf.scene;
+      model.removeFromParent();
+      this.root.remove(this.character);
+      this.character = model;
+      this.root.add(model);
+
+      const find = (name) => model.getObjectByName(name);
+      this.body = find("Body") || model;
+      this.fur = find("Fur") || this.body;
+      this.leftArm = find("Arm.L") || new THREE.Group();
+      this.rightArm = find("Arm.R") || new THREE.Group();
+      this.eyeGroups = [find("Eye.L"), find("Eye.R")].filter(Boolean);
+      this.pupils = [find("Pupil.L"), find("Pupil.R")].filter(Boolean);
+      this.feet = [find("Foot.L"), find("Foot.R")].filter(Boolean);
+      this.heart = find("Heart") || new THREE.Group();
+      model.traverse((part) => {
+        if (part.isMesh) {
+          part.userData.characterPart = true;
+          part.castShadow = false;
+          part.receiveShadow = false;
+        }
+      });
+      this.captureRestPose();
+      this.container.classList.add("blender-ready");
+    }, undefined, (error) => {
+      console.warn("Blender GLB could not load; using the procedural LUMI fallback.", error);
+      this.container.classList.add("blender-fallback");
+    });
+  }
+
+  captureRestPose() {
+    const parts = [this.root, this.character, this.body, this.fur, this.leftArm, this.rightArm, this.heart, ...this.eyeGroups, ...this.pupils, ...this.feet].filter(Boolean);
+    this.restPose = new Map(parts.map((part) => [part, {
+      position: part.position.clone(),
+      quaternion: part.quaternion.clone(),
+      scale: part.scale.clone(),
+    }]));
+  }
+
+  restore(part) {
+    const pose = this.restPose?.get(part);
+    if (!pose) return;
+    part.position.copy(pose.position);
+    part.quaternion.copy(pose.quaternion);
+    part.scale.copy(pose.scale);
+  }
+
   bindInteractions() {
     const canvas = this.renderer.domElement;
     canvas.addEventListener("pointermove", (event) => {
@@ -233,14 +286,10 @@ class LumiCharacter {
   }
 
   resetPose() {
-    this.root.position.set(0, 0.05, 0);
-    this.character.rotation.set(0, 0, 0);
-    this.leftArm.rotation.set(0, 0, -0.16);
-    this.rightArm.rotation.set(0, 0, 0.16);
-    this.feet[0].rotation.set(0, 0, 0);
-    this.feet[1].rotation.set(0, 0, 0);
-    this.heart.scale.setScalar(0.001);
-    this.heart.material.opacity = 0.9;
+    [this.root, this.character, this.body, this.fur, this.leftArm, this.rightArm, this.heart, ...this.eyeGroups, ...this.pupils, ...this.feet].forEach((part) => this.restore(part));
+    this.heart.traverse?.((part) => {
+      if (part.material) part.material.opacity = 0.9;
+    });
   }
 
   applyAction(elapsed) {
@@ -284,8 +333,6 @@ class LumiCharacter {
     }
     if (progress >= 1) {
       this.currentAction = null;
-      this.character.scale.set(1, 1, 1);
-      this.character.position.set(0, 0, 0);
       this.nextAutoAction = elapsed + 4.5 + Math.random() * 5;
     }
   }
@@ -299,8 +346,10 @@ class LumiCharacter {
     const blinkScale = blinkProgress >= 0 && blinkProgress <= 1 ? Math.max(0.08, Math.abs(blinkProgress - 0.5) * 2) : 1;
     this.eyeGroups.forEach((eye) => { eye.scale.y = blinkScale; });
     this.pupils.forEach((pupil) => {
-      pupil.position.x = this.pointer.x * 0.035;
-      pupil.position.y = -0.01 + this.pointer.y * 0.035;
+      const rest = this.restPose?.get(pupil)?.position;
+      if (!rest) return;
+      pupil.position.x = rest.x + this.pointer.x * 0.035;
+      pupil.position.y = rest.y + this.pointer.y * 0.035;
     });
   }
 
@@ -311,8 +360,8 @@ class LumiCharacter {
     this.pointer.lerp(this.targetPointer, 0.075);
     this.resetPose();
     const breath = Math.sin(elapsed * 2.2) * 0.018;
-    this.body.scale.set(1 - breath * 0.4, 0.94 + breath, 0.88 - breath * 0.3);
-    this.fur.scale.set(1 - breath * 0.25, 1 + breath, 1 - breath * 0.2);
+    this.body.scale.multiply(new THREE.Vector3(1 - breath * 0.4, 1 + breath, 1 - breath * 0.3));
+    this.fur.scale.multiply(new THREE.Vector3(1 - breath * 0.25, 1 + breath, 1 - breath * 0.2));
     this.character.rotation.y += this.pointer.x * 0.18;
     this.character.rotation.x += this.pointer.y * 0.05;
     this.updateEyes(elapsed);
